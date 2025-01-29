@@ -91,4 +91,16 @@ async def receive_webhook(request: Request):
         products = [ProductUpdatePayload(**item) for item in payload]
 
         # Process the product data (e.g., log or save it to the database)
-        for prod
+        for product in products:
+            logging.info(f"Product update received for: {product.name} (ID: {product.id})")
+
+        # Respond with a success message
+        return {"status": "success", "message": "Webhook received", "products": [product.dict() for product in products]}
+    except ValidationError as e:
+        # Handle validation errors from Pydantic
+        logging.error(f"Validation error: {e}")
+        raise HTTPException(status_code=400, detail=f"Validation Error: {e}")
+    except Exception as e:
+        # Handle other errors
+        logging.error(f"Error processing webhook: {e}")
+        raise HTTPException(status_code=400, detail="Invalid payload")
