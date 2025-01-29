@@ -66,6 +66,14 @@ class ProductUpdatePayload(BaseModel):
     publicFiles: List[str]
 
 
+@app.get("/")
+async def root():
+    """
+    Simple health check endpoint to confirm the app is running.
+    """
+    return {"message": "FastAPI webhook service is running!"}
+
+
 @app.post("/webhook")
 async def receive_webhook(request: Request):
     """
