@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import HTMLResponse
 import httpx
 
 app = FastAPI()
