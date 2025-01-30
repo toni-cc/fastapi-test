@@ -1,106 +1,50 @@
-from fastapi import FastAPI, Request, HTTPException
-from pydantic import BaseModel, ValidationError
-from typing import List, Optional
-import logging
+from fastapi import FastAPI, HTTPException, Query
+import httpx
 
 app = FastAPI()
 
-# Set up logging to monitor webhook activity
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
+
+ALTEA_ULTIMA_API_KEY = 'cde5731c16fd4c5480c3f54f59fdf064907c2ec772c741d989c1dcad03faeb4d'
+
+# Your CloudCart API Key
 
 
-# Define models for the nested structure
-class Category(BaseModel):
-    id: int
-    url: str
-    name: str
-    description: Optional[str]
-    date_modified: str
-    img: str
-    parent: Optional[str]
+BASE_URL = "https://alteamm.ultima.cloud/interchange/api/v1"
 
-
-class Brand(BaseModel):
-    id: int
-    url: str
-    name: str
-    description: Optional[str]
-    date_modified: str
-    img: str
-
-
-class Variant(BaseModel):
-    id: int
-    v1: Optional[str]
-    v2: Optional[str]
-    v3: Optional[str]
-    quantity: int
-    sku: str
-    barcode: str
-    price: str
-    weight: str
-    images: List[str]
-    p1: Optional[str]
-    p2: Optional[str]
-    p3: Optional[str]
-    delivery_price: Optional[str]
-
-
-class ProductUpdatePayload(BaseModel):
-    id: int
-    url: str
-    name: str
-    description: str
-    tracking: str
-    shipping: str
-    digital: str
-    new: str
-    active: str
-    date_added: str
-    date_modified: str
-    category: Category
-    brand: Brand
-    tags: List[str]
-    variants: List[Variant]
-    images: List[str]
-    publicFiles: List[str]
-
-
-@app.get("/")
-async def root():
+@app.get("/getunpaidinvoices")
+async def get_unpaid_invoices(vat_number: str = Query(..., description="The VAT number to filter invoices")):
     """
-    Simple health check endpoint to confirm the app is running.
+    Fetch unpaid invoices for a specific VAT number.
     """
-    return {"message": "FastAPI webhook service is running!"}
+    headers = {
+        "Authorization": ALTEA_ULTIMA_API_KEY  # Authentication
+    }
 
+    # Construct the request URL
+    url = f"{BASE_URL}/getunpaidinvoices"
 
-@app.post("/webhook")
-async def receive_webhook(request: Request):
-    """
-    Endpoint to receive webhook data from CloudCart.
-    """
-    try:
-        # Parse the incoming JSON payload
-        payload = await request.json()
-        logging.info(f"Payload received: {payload}")
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=headers)
 
-        # Validate and parse the payload as a list of ProductUpdatePayload objects
-        if not isinstance(payload, list):
-            raise HTTPException(status_code=400, detail="Payload must be a list of products")
+    # Handle errors
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=response.status_code,
+            detail={"message": "Error fetching invoices", "error": response.json()},
+        )
 
-        products = [ProductUpdatePayload(**item) for item in payload]
+    # Get all invoices from the API response
+    invoices = response.json()
 
-        # Process the product data (e.g., log or save it to the database)
-        for product in products:
-            logging.info(f"Product update received for: {product.name} (ID: {product.id})")
+    # Filter invoices by the provided VAT number
+    filtered_invoices = [invoice for invoice in invoices if invoice["vatNumber"] == vat_number]
 
-        # Respond with a success message
-        return {"status": "success", "message": "Webhook received", "products": [product.dict() for product in products]}
-    except ValidationError as e:
-        # Handle validation errors from Pydantic
-        logging.error(f"Validation error: {e}")
-        raise HTTPException(status_code=400, detail=f"Validation Error: {e}")
-    except Exception as e:
-        # Handle other errors
-        logging.error(f"Error processing webhook: {e}")
-        raise HTTPException(status_code=400, detail="Invalid payload")
+    # If no invoices are found, return a 404 error
+    if not filtered_invoices:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No unpaid invoices found for VAT number {vat_number}",
+        )
+
+    # Return the filtered invoices
+    return filtered_invoices
