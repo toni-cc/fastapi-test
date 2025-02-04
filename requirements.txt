@@ -4,3 +4,4 @@ typing
 logging
 beautifulsoup4
 selenium
+chromium-browser-bin
