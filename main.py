@@ -1,43 +1,106 @@
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from webdriver_manager.chrome import ChromeDriverManager
+from fastapi import FastAPI, Request, HTTPException
+from pydantic import BaseModel, ValidationError
+from typing import List, Optional
+import logging
 
 app = FastAPI()
 
-TARGET_URL = "https://ajnas.mk/account"
+# Set up logging to monitor webhook activity
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 
-@app.get("/extract-email")
-async def extract_email():
-    # Configure Chrome options
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")  # Run without GUI
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--window-size=1280x800")
 
+# Define models for the nested structure
+class Category(BaseModel):
+    id: int
+    url: str
+    name: str
+    description: Optional[str]
+    date_modified: str
+    img: str
+    parent: Optional[str]
+
+
+class Brand(BaseModel):
+    id: int
+    url: str
+    name: str
+    description: Optional[str]
+    date_modified: str
+    img: str
+
+
+class Variant(BaseModel):
+    id: int
+    v1: Optional[str]
+    v2: Optional[str]
+    v3: Optional[str]
+    quantity: int
+    sku: str
+    barcode: str
+    price: str
+    weight: str
+    images: List[str]
+    p1: Optional[str]
+    p2: Optional[str]
+    p3: Optional[str]
+    delivery_price: Optional[str]
+
+
+class ProductUpdatePayload(BaseModel):
+    id: int
+    url: str
+    name: str
+    description: str
+    tracking: str
+    shipping: str
+    digital: str
+    new: str
+    active: str
+    date_added: str
+    date_modified: str
+    category: Category
+    brand: Brand
+    tags: List[str]
+    variants: List[Variant]
+    images: List[str]
+    publicFiles: List[str]
+
+
+@app.get("/")
+async def root():
+    """
+    Simple health check endpoint to confirm the app is running.
+    """
+    return {"message": "FastAPI webhook service is running!"}
+
+
+@app.post("/webhook")
+async def receive_webhook(request: Request):
+    """
+    Endpoint to receive webhook data from CloudCart.
+    """
     try:
-        # Install & use WebDriver dynamically
-        service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=chrome_options)
+        # Parse the incoming JSON payload
+        payload = await request.json()
+        logging.info(f"Payload received: {payload}")
 
-        driver.get(TARGET_URL)
-        driver.implicitly_wait(5)  # Wait for elements to load
+        # Validate and parse the payload as a list of ProductUpdatePayload objects
+        if not isinstance(payload, list):
+            raise HTTPException(status_code=400, detail="Payload must be a list of products")
 
-        email_field = driver.find_element(By.ID, "contactInfoEmail")
-        email = email_field.get_attribute("value")
+        products = [ProductUpdatePayload(**item) for item in payload]
 
-        driver.quit()
+        # Process the product data (e.g., log or save it to the database)
+        for product in products:
+            logging.info(f"Product update received for: {product.name} (ID: {product.id})")
 
-        if email:
-            return {"email": email}
-        else:
-            return {"error": "Email not found"}
-
+        # Respond with a success message
+        return {"status": "success", "message": "Webhook received", "products": [product.dict() for product in products]}
+    except ValidationError as e:
+        # Handle validation errors from Pydantic
+        logging.error(f"Validation error: {e}")
+        raise HTTPException(status_code=400, detail=f"Validation Error: {e}")
     except Exception as e:
-        driver.quit()
-        return JSONResponse(content={"error": str(e)}, status_code=500)
+        # Handle other errors
+        logging.error(f"Error processing webhook: {e}")
+        raise HTTPException(status_code=400, detail="Invalid payload")
